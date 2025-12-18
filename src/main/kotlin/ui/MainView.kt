@@ -1,5 +1,7 @@
 ﻿package ui
 
+import javafx.beans.binding.Binding
+import javafx.beans.binding.Bindings
 import javafx.beans.property.SimpleObjectProperty
 import javafx.beans.property.SimpleStringProperty
 import javafx.collections.FXCollections
@@ -18,8 +20,12 @@ import model.Category
 import ui.dialogs.AccountDialog
 import ui.dialogs.CategoryDialog
 import ui.dialogs.TransactionDialog
+import utils.BindingUtils
+import utils.Localization
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Locale
+
 
 class MainView(
     private val userId: Int,
@@ -29,22 +35,53 @@ class MainView(
 ) {
     val root = BorderPane().apply {
         val menuBar = MenuBar()
-        val fileMenu = Menu("Файл")
-        val exitMenuItem = MenuItem("Выход")
-        exitMenuItem.setOnAction { System.exit(0) }
+        val fileMenu = Menu().apply {
+            textProperty().bind(Bindings.createStringBinding(
+                { Localization.getString("menu.file") },
+                Localization.localeProperty
+            ))
+        }
+        val exitMenuItem = MenuItem().apply {
+            BindingUtils.bindMenuItem(this, "menu.exit")
+            setOnAction { System.exit(0) }
+        }
         fileMenu.items.add(exitMenuItem)
 
-        val actionsMenu = Menu("Действия")
-        val addAccountMenuItem = MenuItem("Добавить счет")
-        val addTransactionMenuItem = MenuItem("Добавить транзакцию")
-        val addCategoryMenuItem = MenuItem("Добавить категорию")
+        val actionsMenu = Menu().apply {
+            BindingUtils.bindMenu(this, "menu.actions")
+        }
+        val addAccountMenuItem = MenuItem().apply {
+            BindingUtils.bindMenuItem(this, "menu.add_account")
+        }
+        val addTransactionMenuItem = MenuItem().apply {
+            BindingUtils.bindMenuItem(this, "menu.add_transaction")
+        }
+        val addCategoryMenuItem = MenuItem().apply {
+            BindingUtils.bindMenuItem(this, "menu.add_category")
+        }
 
         actionsMenu.items.addAll(addAccountMenuItem, addTransactionMenuItem, addCategoryMenuItem)
 
-        val settingsMenu = Menu("Настройки")
-        val languageMenu = Menu("Язык")
-        val russianMenuItem = MenuItem("Русский")
-        val englishMenuItem = MenuItem("English")
+        val settingsMenu = Menu().apply {
+            BindingUtils.bindMenu(this, "menu.settings")
+        }
+        val languageMenu = Menu().apply {
+            BindingUtils.bindMenu(this, "menu.language")
+        }
+        val russianMenuItem = MenuItem().apply {
+            text = Localization.getLocaleName(Locale("ru", "RU"))
+            setOnAction {
+                Localization.setLocale(Locale("ru", "RU"))
+                refreshUI()
+            }
+        }
+        val englishMenuItem = MenuItem().apply {
+            text = Localization.getLocaleName(Locale("en", "US"))
+            setOnAction {
+                Localization.setLocale(Locale("en", "US"))
+                refreshUI()
+            }
+        }
 
         languageMenu.items.addAll(russianMenuItem, englishMenuItem)
         settingsMenu.items.add(languageMenu)
@@ -55,7 +92,75 @@ class MainView(
 
         val tabPane = TabPane()
 
-        val accountsTab = Tab("Счета")
+        val accountsTab = Tab().apply {
+            BindingUtils.bindTab(this, "tab.accounts")
+            content = createAccountsTab()
+        }
+
+        val transactionsTab = Tab().apply {
+            BindingUtils.bindTab(this, "tab.transactions")
+            content = createTransactionsTab()
+        }
+
+        val categoriesTab = Tab().apply {
+            BindingUtils.bindTab(this, "tab.categories")
+            content = createCategoriesTab()
+        }
+
+        val dashboardTab = Tab().apply {
+            BindingUtils.bindTab(this, "tab.dashboard")
+            content = DashboardView(userId, accountService, categoryService, transactionService).root
+        }
+
+        val chartsTab = Tab().apply {
+            BindingUtils.bindTab(this, "tab.statistics")
+            content = ChartsView(userId, categoryService, transactionService).root
+        }
+
+        tabPane.tabs.addAll(accountsTab, transactionsTab, categoriesTab, dashboardTab, chartsTab)
+        center = tabPane
+
+        addAccountMenuItem.setOnAction {
+            AccountDialog(userId, accountService) {
+                refreshUI()
+            }.showAndWait()
+        }
+
+        addTransactionMenuItem.setOnAction {
+            TransactionDialog(userId, accountService, categoryService, transactionService) {
+                refreshUI()
+            }.showAndWait()
+        }
+
+        addCategoryMenuItem.setOnAction {
+            CategoryDialog(userId, categoryService) {
+                refreshUI()
+            }.showAndWait()
+        }
+    }
+
+    private fun refreshUI() {
+        // Обновляем вкладки при смене языка
+        val rootBorderPane = root as BorderPane
+        val tabPane = rootBorderPane.center as TabPane
+
+        val accountsTab = tabPane.tabs[0]
+        accountsTab.content = createAccountsTab()
+
+        val transactionsTab = tabPane.tabs[1]
+        transactionsTab.content = createTransactionsTab()
+
+        val categoriesTab = tabPane.tabs[2]
+        categoriesTab.content = createCategoriesTab()
+
+        val dashboardTab = tabPane.tabs[3]
+        dashboardTab.content = DashboardView(userId, accountService, categoryService, transactionService).root
+
+        val chartsTab = tabPane.tabs[4]
+        chartsTab.content = ChartsView(userId, categoryService, transactionService).root
+    }
+
+    private fun createAccountsTab(): VBox {
         val accountsTable = TableView<Account>()
 
         val accountsData = FXCollections.observableArrayList(accountService.getAccounts(userId))
@@ -66,55 +171,68 @@ class MainView(
         sortedAccounts.comparator = accountsTable.comparator
 
         val accountsFilterBox = HBox(10.0).apply {
-            children.addAll(
-                Label("Фильтр:"),
-                TextField().apply {
-                    promptText = "Поиск по названию"
-                    textProperty().addListener { _, _, newValue ->
-                        filteredAccounts.setPredicate { account ->
-                            newValue.isBlank() || account.name.contains(newValue, ignoreCase = true)
-                        }
+            val filterLabel = Label().apply {
+                BindingUtils.bindLabel(this, "label.filter")
+            }
+            val searchField = TextField().apply {
+                BindingUtils.bindTextFieldPrompt(this, "placeholder.search_name")
+                textProperty().addListener { _, _, newValue ->
+                    filteredAccounts.setPredicate { account ->
+                        newValue.isBlank() || account.name.contains(newValue, ignoreCase = true)
                     }
                 }
-            )
+            }
+            children.addAll(filterLabel, searchField)
         }
 
-        val idColumn = TableColumn<Account, String>("ID")
-        idColumn.setCellValueFactory { SimpleStringProperty(it.value.id.toString()) }
+        val idColumn = TableColumn<Account, String>("ID").apply {
+            BindingUtils.bindColumn(this, "column.id")
+            setCellValueFactory { SimpleStringProperty(it.value.id.toString()) }
+        }
 
-        val nameColumn = TableColumn<Account, String>("Название")
-        nameColumn.setCellValueFactory { SimpleStringProperty(it.value.name) }
+        val nameColumn = TableColumn<Account, String>("Название").apply {
+            BindingUtils.bindColumn(this, "column.name")
+            setCellValueFactory { SimpleStringProperty(it.value.name) }
+        }
 
-        val balanceColumn = TableColumn<Account, String>("Баланс")
-        balanceColumn.setCellValueFactory { SimpleStringProperty(String.format("%.2f", it.value.balance)) }
+        val balanceColumn = TableColumn<Account, String>("Баланс").apply {
+            BindingUtils.bindColumn(this, "column.balance")
+            setCellValueFactory { SimpleStringProperty(String.format("%.2f", it.value.balance)) }
+        }
 
-        val currencyColumn = TableColumn<Account, String>("Валюта")
-        currencyColumn.setCellValueFactory { SimpleStringProperty(it.value.currency) }
+        val currencyColumn = TableColumn<Account, String>("Валюта").apply {
+            BindingUtils.bindColumn(this, "column.currency")
+            setCellValueFactory { SimpleStringProperty(it.value.currency) }
+        }
 
         accountsTable.columns.addAll(idColumn, nameColumn, balanceColumn, currencyColumn)
 
         val accountsButtons = HBox(10.0).apply {
-            children.addAll(
-                Button("Добавить счет").apply {
-                    setOnAction {
-                        AccountDialog(userId, accountService) {
-                            accountsData.setAll(accountService.getAccounts(userId))
-                        }.showAndWait()
-                    }
-                },
-                Button("Обновить").apply {
-                    setOnAction {
+            val addButton = Button().apply {
+                BindingUtils.bindButton(this, "button.add")
+                setOnAction {
+                    AccountDialog(userId, accountService) {
                         accountsData.setAll(accountService.getAccounts(userId))
-                    }
+                    }.showAndWait()
                 }
-            )
+            }
+
+            val updateButton = Button().apply {
+                BindingUtils.bindButton(this, "button.update")
+                setOnAction {
+                    accountsData.setAll(accountService.getAccounts(userId))
+                }
+            }
+
+            children.addAll(addButton, updateButton)
         }
 
-        accountsTab.content = VBox(10.0).apply {
+        return VBox(10.0).apply {
             children.addAll(accountsFilterBox, accountsTable, accountsButtons)
         }
+    }
 
-        val transactionsTab = Tab("Транзакции")
+    private fun createTransactionsTab(): VBox {
         val transactionsTable = TableView<Transaction>()
 
         val transactionsData = FXCollections.observableArrayList(transactionService.getTransactions(userId))
@@ -125,186 +243,142 @@ class MainView(
         sortedTransactions.comparator = transactionsTable.comparator
 
         val transactionsFilterBox = HBox(10.0).apply {
+            val typeLabel = Label().apply {
+                BindingUtils.bindLabel(this, "label.type")
+            }
             val typeFilter = ComboBox<String>().apply {
-                items.addAll("Все", "Доход", "Расход", "Перевод")
+                items.addAll(
+                    Localization.getString("filter.all"),
+                    Localization.getString("transaction.type.income"),
+                    Localization.getString("transaction.type.expense"),
+                    Localization.getString("transaction.type.transfer")
+                )
                 selectionModel.selectFirst()
             }
 
-            val dateFromPicker = DatePicker().apply {
-                promptText = "Дата с"
+            val searchLabel = Label().apply {
+                BindingUtils.bindLabel(this, "label.search")
             }
-
-            val dateToPicker = DatePicker().apply {
-                promptText = "Дата по"
-            }
-
             val searchField = TextField().apply {
-                promptText = "Поиск по описанию"
+                BindingUtils.bindTextFieldPrompt(this, "placeholder.search_description")
             }
 
-            val applyFilterButton = Button("Применить фильтры")
+            val applyButton = Button().apply {
+                BindingUtils.bindButton(this, "button.apply_filters")
+                setOnAction {
+                    filteredTransactions.setPredicate { transaction ->
+                        val typeMatch = typeFilter.value == Localization.getString("filter.all") ||
+                                when(transaction.type) {
+                                    "income" -> Localization.getString("transaction.type.income")
+                                    "expense" -> Localization.getString("transaction.type.expense")
+                                    "transfer" -> Localization.getString("transaction.type.transfer")
+                                    else -> ""
+                                } == typeFilter.value
 
-            applyFilterButton.setOnAction {
-                filteredTransactions.setPredicate { transaction ->
-                    val typeMatch = typeFilter.value == "Все" ||
-                            when(transaction.type) {
-                                "income" -> "Доход"
-                                "expense" -> "Расход"
-                                "transfer" -> "Перевод"
-                                else -> ""
-                            } == typeFilter.value
+                        val searchMatch = searchField.text.isBlank() ||
+                                (transaction.description?.contains(searchField.text, ignoreCase = true) == true)
 
-                    val dateMatch = if (dateFromPicker.value != null && dateToPicker.value != null) {
-                        try {
-                            val transDate = LocalDate.parse(transaction.transactionDate.substring(0, 10))
-                            !transDate.isBefore(dateFromPicker.value) && !transDate.isAfter(dateToPicker.value)
-                        } catch (e: Exception) {
-                            true
-                        }
-                    } else true
-
-                    val searchMatch = searchField.text.isBlank() ||
-                            (transaction.description?.contains(searchField.text, ignoreCase = true) == true)
-
-                    typeMatch && dateMatch && searchMatch
+                        typeMatch && searchMatch
+                    }
                 }
             }
 
-            children.addAll(
-                Label("Тип:"), typeFilter,
-                Label("С:"), dateFromPicker,
-                Label("По:"), dateToPicker,
-                Label("Поиск:"), searchField,
-                applyFilterButton
-            )
+            children.addAll(typeLabel, typeFilter, searchLabel, searchField, applyButton)
         }
 
-        val transIdColumn = TableColumn<Transaction, String>("ID")
-        transIdColumn.setCellValueFactory { SimpleStringProperty(it.value.id.toString()) }
+        val transIdColumn = TableColumn<Transaction, String>("ID").apply {
+            BindingUtils.bindColumn(this, "column.id")
+            setCellValueFactory { SimpleStringProperty(it.value.id.toString()) }
+        }
 
-        val transTypeColumn = TableColumn<Transaction, String>("Тип")
-        transTypeColumn.setCellValueFactory {
-            SimpleStringProperty(
-                when(it.value.type) {
-                    "income" -> "Доход"
-                    "expense" -> "Расход"
-                    "transfer" -> "Перевод"
-                    else -> it.value.type
+        val transTypeColumn = TableColumn<Transaction, String>("Тип").apply {
+            BindingUtils.bindColumn(this, "column.type")
+            setCellValueFactory {
+                SimpleStringProperty(
+                    when(it.value.type) {
+                        "income" -> Localization.getString("transaction.type.income")
+                        "expense" -> Localization.getString("transaction.type.expense")
+                        "transfer" -> Localization.getString("transaction.type.transfer")
+                        else -> it.value.type
+                    }
+                )
+            }
+        }
+
+        val transAmountColumn = TableColumn<Transaction, String>("Сумма").apply {
+            BindingUtils.bindColumn(this, "column.amount")
+            setCellValueFactory {
+                SimpleStringProperty(String.format("%.2f", it.value.amount))
+            }
+        }
+
+        val transDescColumn = TableColumn<Transaction, String>("Описание").apply {
+            BindingUtils.bindColumn(this, "column.description")
+            setCellValueFactory {
+                SimpleStringProperty(it.value.description ?: "")
+            }
+        }
+
+        val transDateColumn = TableColumn<Transaction, String>("Дата").apply {
+            BindingUtils.bindColumn(this, "column.date")
+            setCellValueFactory {
+                try {
+                    val date = LocalDate.parse(it.value.transactionDate.substring(0, 10))
+                    SimpleStringProperty(date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")))
+                } catch (e: Exception) {
+                    SimpleStringProperty(it.value.transactionDate)
                 }
-            )
-        }
-
-        val transAmountColumn = TableColumn<Transaction, String>("Сумма")
-        transAmountColumn.setCellValueFactory {
-            SimpleStringProperty(String.format("%.2f", it.value.amount))
-        }
-
-        val transDescColumn = TableColumn<Transaction, String>("Описание")
-        transDescColumn.setCellValueFactory {
-            SimpleStringProperty(it.value.description ?: "")
-        }
-
-        val transCategoryColumn = TableColumn<Transaction, String>("Категория")
-        transCategoryColumn.setCellValueFactory {
-            val categoryId = it.value.categoryId
-            val categoryName = if (categoryId != null) {
-                categoryService.getCategoryById(categoryId)?.name ?: "Без категории"
-            } else {
-                "Без категории"
-            }
-            SimpleStringProperty(categoryName)
-        }
-
-        val transDateColumn = TableColumn<Transaction, String>("Дата")
-        transDateColumn.setCellValueFactory {
-            try {
-                val date = LocalDate.parse(it.value.transactionDate.substring(0, 10))
-                SimpleStringProperty(date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")))
-            } catch (e: Exception) {
-                SimpleStringProperty(it.value.transactionDate)
             }
         }
 
-        val transFromColumn = TableColumn<Transaction, String>("Со счета")
-        transFromColumn.setCellValueFactory {
-            val accountId = it.value.fromAccountId
-            val accountName = if (accountId != null) {
-                accountService.getAccountById(accountId)?.name ?: "Не указан"
-            } else {
-                "Не указан"
-            }
-            SimpleStringProperty(accountName)
-        }
-
-        val transToColumn = TableColumn<Transaction, String>("На счет")
-        transToColumn.setCellValueFactory {
-            val accountId = it.value.toAccountId
-            val accountName = if (accountId != null) {
-                accountService.getAccountById(accountId)?.name ?: "Не указан"
-            } else {
-                "Не указан"
-            }
-            SimpleStringProperty(accountName)
-        }
-
-        transactionsTable.columns.addAll(
-            transIdColumn, transTypeColumn, transAmountColumn,
-            transDescColumn, transCategoryColumn, transDateColumn,
-            transFromColumn, transToColumn
-        )
+        transactionsTable.columns.addAll(transIdColumn, transTypeColumn, transAmountColumn, transDescColumn, transDateColumn)
 
         val transactionsButtons = HBox(10.0).apply {
-            children.addAll(
-                Button("Добавить транзакцию").apply {
-                    setOnAction {
-                        TransactionDialog(userId, accountService, categoryService, transactionService) {
-                            transactionsData.setAll(transactionService.getTransactions(userId))
-                        }.showAndWait()
-                    }
-                },
-                Button("Обновить").apply {
-                    setOnAction {
+            val addButton = Button().apply {
+                BindingUtils.bindButton(this, "button.add")
+                setOnAction {
+                    TransactionDialog(userId, accountService, categoryService, transactionService) {
                         transactionsData.setAll(transactionService.getTransactions(userId))
-                    }
-                },
-                Button("Сбросить фильтры").apply {
-                    setOnAction {
-                        transactionsFilterBox.children.filterIsInstance<DatePicker>().forEach { it.value = null }
-                        transactionsFilterBox.children.filterIsInstance<ComboBox<*>>().forEach { comboBox ->
-                            comboBox.selectionModel.selectFirst()
-                        }
-                        transactionsFilterBox.children.filterIsInstance<TextField>().forEach { it.clear() }
-                        filteredTransactions.predicate = null
-                    }
-                },
-                Button("Удалить").apply {
-                    setOnAction {
-                        val selected = transactionsTable.selectionModel.selectedItem
-                        if (selected != null) {
-                            Alert(Alert.AlertType.CONFIRMATION).apply {
-                                title = "Подтверждение удаления"
-                                headerText = "Удалить транзакцию?"
-                                contentText = "Вы действительно хотите удалить транзакцию №${selected.id}?"
-                                buttonTypes.setAll(ButtonType.YES, ButtonType.NO)
+                    }.showAndWait()
+                }
+            }
 
-                                showAndWait().ifPresent { response ->
-                                    if (response == ButtonType.YES) {
-                                        transactionService.deleteTransaction(selected.id)
-                                        transactionsData.setAll(transactionService.getTransactions(userId))
-                                    }
+            val updateButton = Button().apply {
+                BindingUtils.bindButton(this, "button.update")
+                setOnAction {
+                    transactionsData.setAll(transactionService.getTransactions(userId))
+                }
+            }
+
+            val deleteButton = Button().apply {
+                BindingUtils.bindButton(this, "button.delete")
+                setOnAction {
+                    val selected = transactionsTable.selectionModel.selectedItem
+                    if (selected != null) {
+                        Alert(Alert.AlertType.CONFIRMATION).apply {
+                            BindingUtils.bindAlert(this, "dialog.confirm_delete", "dialog.delete_transaction")
+                            buttonTypes.setAll(ButtonType.YES, ButtonType.NO)
+
+                            showAndWait().ifPresent { response ->
+                                if (response == ButtonType.YES) {
+                                    transactionService.deleteTransaction(selected.id)
+                                    transactionsData.setAll(transactionService.getTransactions(userId))
                                 }
                             }
                         }
                     }
                 }
-            )
+            }
+
+            children.addAll(addButton, updateButton, deleteButton)
         }
 
-        transactionsTab.content = VBox(10.0).apply {
+        return VBox(10.0).apply {
             children.addAll(transactionsFilterBox, transactionsTable, transactionsButtons)
         }
+    }
 
-        val categoriesTab = Tab("Категории")
+    private fun createCategoriesTab(): VBox {
         val categoriesTable = TableView<Category>()
 
         val categoriesData = FXCollections.observableArrayList(categoryService.getAllCategories(userId))
@@ -315,159 +389,87 @@ class MainView(
         sortedCategories.comparator = categoriesTable.comparator
 
         val categoriesFilterBox = HBox(10.0).apply {
-            val nameFilterField = TextField().apply {
-                promptText = "Поиск по названию"
+            val filterLabel = Label().apply {
+                BindingUtils.bindLabel(this, "label.filter")
+            }
+            val searchField = TextField().apply {
+                BindingUtils.bindTextFieldPrompt(this, "placeholder.search_name")
                 textProperty().addListener { _, _, newValue ->
                     filteredCategories.setPredicate { category ->
-                        val typeFilterValue = (children[2] as? ComboBox<String>)?.value ?: "Все типы"
-
-                        val typeMatch = typeFilterValue == "Все типы" ||
-                                (typeFilterValue == "Доход" && category.type == "income") ||
-                                (typeFilterValue == "Расход" && category.type == "expense")
-
-                        val nameMatch = newValue.isBlank() || category.name.contains(newValue, ignoreCase = true)
-
-                        typeMatch && nameMatch
+                        newValue.isBlank() || category.name.contains(newValue, ignoreCase = true)
                     }
                 }
             }
+            children.addAll(filterLabel, searchField)
+        }
 
-            val typeFilterCombo = ComboBox<String>().apply {
-                items.addAll("Все типы", "Доход", "Расход")
-                selectionModel.selectFirst()
-                setOnAction {
-                    val nameFilterValue = nameFilterField.text
-                    filteredCategories.setPredicate { category ->
-                        val typeMatch = value == "Все типы" ||
-                                (value == "Доход" && category.type == "income") ||
-                                (value == "Расход" && category.type == "expense")
+        val catIdColumn = TableColumn<Category, String>("ID").apply {
+            BindingUtils.bindColumn(this, "column.id")
+            setCellValueFactory { SimpleStringProperty(it.value.id.toString()) }
+        }
 
-                        val nameMatch = nameFilterValue.isBlank() || category.name.contains(nameFilterValue, ignoreCase = true)
+        val catNameColumn = TableColumn<Category, String>("Название").apply {
+            BindingUtils.bindColumn(this, "column.name")
+            setCellValueFactory { SimpleStringProperty(it.value.name) }
+        }
 
-                        typeMatch && nameMatch
+        val catTypeColumn = TableColumn<Category, String>("Тип").apply {
+            BindingUtils.bindColumn(this, "column.type")
+            setCellValueFactory {
+                SimpleStringProperty(
+                    when(it.value.type) {
+                        "income" -> Localization.getString("category.type.income")
+                        "expense" -> Localization.getString("category.type.expense")
+                        else -> it.value.type
                     }
-                }
+                )
             }
-
-            children.addAll(
-                Label("Фильтр:"),
-                nameFilterField,
-                typeFilterCombo
-            )
         }
 
-        val catIdColumn = TableColumn<Category, String>("ID")
-        catIdColumn.setCellValueFactory { SimpleStringProperty(it.value.id.toString()) }
-
-        val catNameColumn = TableColumn<Category, String>("Название")
-        catNameColumn.setCellValueFactory { SimpleStringProperty(it.value.name) }
-
-        val catTypeColumn = TableColumn<Category, String>("Тип")
-        catTypeColumn.setCellValueFactory {
-            SimpleStringProperty(
-                when(it.value.type) {
-                    "income" -> "Доход"
-                    "expense" -> "Расход"
-                    else -> it.value.type
-                }
-            )
-        }
-
-        val catUserIdColumn = TableColumn<Category, String>("ID пользователя")
-        catUserIdColumn.setCellValueFactory { SimpleStringProperty(it.value.userId.toString()) }
-
-        categoriesTable.columns.addAll(catIdColumn, catNameColumn, catTypeColumn, catUserIdColumn)
+        categoriesTable.columns.addAll(catIdColumn, catNameColumn, catTypeColumn)
 
         val categoriesButtons = HBox(10.0).apply {
-            children.addAll(
-                Button("Добавить категорию").apply {
-                    setOnAction {
-                        CategoryDialog(userId, categoryService) {
-                            categoriesData.setAll(categoryService.getAllCategories(userId))
-                        }.showAndWait()
-                    }
-                },
-                Button("Обновить").apply {
-                    setOnAction {
+            val addButton = Button().apply {
+                BindingUtils.bindButton(this, "button.add")
+                setOnAction {
+                    CategoryDialog(userId, categoryService) {
                         categoriesData.setAll(categoryService.getAllCategories(userId))
-                    }
-                },
-                Button("Удалить").apply {
-                    setOnAction {
-                        val selected = categoriesTable.selectionModel.selectedItem
-                        if (selected != null) {
-                            Alert(Alert.AlertType.CONFIRMATION).apply {
-                                title = "Подтверждение удаления"
-                                headerText = "Удалить категорию?"
-                                contentText = "Вы действительно хотите удалить категорию '${selected.name}'?\nЭто не удалит связанные транзакции."
-                                buttonTypes.setAll(ButtonType.YES, ButtonType.NO)
+                    }.showAndWait()
+                }
+            }
 
-                                showAndWait().ifPresent { response ->
-                                    if (response == ButtonType.YES) {
-                                        categoryService.deleteCategory(selected.id)
-                                        categoriesData.setAll(categoryService.getAllCategories(userId))
-                                    }
+            val updateButton = Button().apply {
+                BindingUtils.bindButton(this, "button.update")
+                setOnAction {
+                    categoriesData.setAll(categoryService.getAllCategories(userId))
+                }
+            }
+
+            val deleteButton = Button().apply {
+                BindingUtils.bindButton(this, "button.delete")
+                setOnAction {
+                    val selected = categoriesTable.selectionModel.selectedItem
+                    if (selected != null) {
+                        Alert(Alert.AlertType.CONFIRMATION).apply {
+                            BindingUtils.bindAlert(this, "dialog.confirm_delete", "dialog.delete_category")
+                            buttonTypes.setAll(ButtonType.YES, ButtonType.NO)
+
+                            showAndWait().ifPresent { response ->
+                                if (response == ButtonType.YES) {
+                                    categoryService.deleteCategory(selected.id)
+                                    categoriesData.setAll(categoryService.getAllCategories(userId))
                                 }
                             }
                         }
                     }
                 }
-            )
+            }
+
+            children.addAll(addButton, updateButton, deleteButton)
         }
 
-        categoriesTab.content = VBox(10.0).apply {
+        return VBox(10.0).apply {
             children.addAll(categoriesFilterBox, categoriesTable, categoriesButtons)
-        }
-
-        val dashboardTab = Tab("Дашборд")
-        val dashboardView = DashboardView(userId, accountService, categoryService, transactionService)
-        dashboardTab.content = dashboardView.root
-
-        val chartsTab = Tab("Статистика")
-        val chartsView = ChartsView(userId, categoryService, transactionService)
-        chartsTab.content = chartsView.root
-
-        tabPane.tabs.addAll(accountsTab, transactionsTab, categoriesTab, dashboardTab, chartsTab)
-        center = tabPane
-
-        addAccountMenuItem.setOnAction {
-            AccountDialog(userId, accountService) {
-                accountsData.setAll(accountService.getAccounts(userId))
-                // Обновляем дашборд
-                val dashboardContent = dashboardTab.content as? VBox
-                dashboardContent?.children?.clear()
-                dashboardContent?.children?.add(DashboardView(userId, accountService, categoryService, transactionService).root)
-            }.showAndWait()
-        }
-
-        addTransactionMenuItem.setOnAction {
-            TransactionDialog(userId, accountService, categoryService, transactionService) {
-                transactionsData.setAll(transactionService.getTransactions(userId))
-                val dashboardContent = dashboardTab.content as? VBox
-                dashboardContent?.children?.clear()
-                dashboardContent?.children?.add(DashboardView(userId, accountService, categoryService, transactionService).root)
-
-                val chartsContent = chartsTab.content as? VBox
-                chartsContent?.children?.clear()
-                chartsContent?.children?.add(ChartsView(userId, categoryService, transactionService).root)
-            }.showAndWait()
-        }
-
-        addCategoryMenuItem.setOnAction {
-            CategoryDialog(userId, categoryService) {
-                categoriesData.setAll(categoryService.getAllCategories(userId))
-                val chartsContent = chartsTab.content as? VBox
-                chartsContent?.children?.clear()
-                chartsContent?.children?.add(ChartsView(userId, categoryService, transactionService).root)
-            }.showAndWait()
-        }
-
-        russianMenuItem.setOnAction {
-            // TODO: Обновить все тексты на русский
-        }
-
-        englishMenuItem.setOnAction {
-            // TODO: Обновить все тексты на английский
         }
     }
 }
